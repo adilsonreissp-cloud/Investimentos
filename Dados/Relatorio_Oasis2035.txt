@@ -1,0 +1,38 @@
+=========================================================
+          SUMÁRIO EXECUTIVO - PROJETO OÁSIS 2035
+          Gerado em: 23/07/2026 às 15:49:11
+=========================================================
+
+1. DIAGNÓSTICO ATUAL DA CARTEIRA
+---------------------------------------------------------
+Patrimônio Líquido Alocado:       R$ 43.241,45
+Renda Passiva Mensal Atual:       R$ 572,79
+Quantidade de Ativos em Carteira: 6 FIIs
+Yield Médio do Radar de Mercado:  1.78% ao mês
+
+2. COMPOSIÇÃO DOS ATIVOS POSICIONADOS
+---------------------------------------------------------
+FII      | QUANTIDADE | PREÇO ATUAL  | RENDA ESTIMADA
+---------------------------------------------------------
+BDIV11   |        310 | R$      37,59 | R$       165,33
+JMBI11   |        353 | R$      84,38 | R$       381,24
+VGIA11   |        150 | R$       8,39 | R$        19,50
+VGIR11   |         26 | R$       9,41 | R$         3,12
+SNAG11   |         25 | R$       9,79 | R$         3,00
+VHFA11   |          5 | R$      10,90 | R$         0,60
+---------------------------------------------------------
+
+3. PROJEÇÃO DE LONGO PRAZO (ALVO: SETEMBRO/2035)
+---------------------------------------------------------
+Prazo Cronológico Restante:       110 meses
+Aporte Mensal Base Considerado:   R$ 950,00
+Total que sairá do seu bolso:     R$ 104.500,00
+
+CENÁRIO A - BASE (Mantendo o ritmo atual do mercado):
+  - Patrimônio Final Estimado:     R$ 620.160,31
+  - Renda Passiva Estimada:        R$ 11.046,85 / mês
+
+CENÁRIO B - ESTRESSE (Redução de 15% nas taxas gerais):
+  - Patrimônio Final Estimado:     R$ 490.789,53
+  - Renda Passiva Estimada:        R$ 7.431,02 / mês
+=========================================================
