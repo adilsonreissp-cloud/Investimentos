@@ -1,0 +1,71 @@
+# -*- coding: utf-8 -*-
+import os
+import csv
+import pandas as pd
+
+def processar_historico_carteira(df, pasta_dados="Dados"):
+    print("\n" + "=" * 45)
+    print("          HISTÓRICO CONSOLIDADO DA CARTEIRA")
+    print("=" * 45)
+     
+    caminho_hist = os.path.join(pasta_dados, "Historico_Carteira.csv")
+     
+    # --- 1. CALCULA OS DADOS ATUAIS PARA POSSÍVEL REGISTRO ---
+    df_carteira = df[df['QUANTIDADE'] > 0].copy()
+    patrimonio_atual = (df_carteira['QUANTIDADE'] * df_carteira['PREÇO ATUAL']).sum()
+    df_carteira['DIV_ESTIMADO'] = df_carteira['QUANTIDADE'] * df_carteira['DY ESPERADO'].astype(float)
+    renda_atual = df_carteira['DIV_ESTIMADO'].sum()
+    data_hoje = pd.Timestamp.now().strftime("%d/%m/%Y")
+    mes_ano_atual = pd.Timestamp.now().strftime("%m/%Y")
+     
+    # --- 2. VERIFICA SE O ARQUIVO EXISTE OU CRIA UM NOVO ---
+    if not os.path.exists(caminho_hist):
+        with open(caminho_hist, mode='w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Data Registro', 'Mês/Ano', 'Patrimônio Total', 'Renda Estimada'])
+            # Já inicia com a foto de hoje para não ficar vazio
+            writer.writerow([data_hoje, mes_ano_atual, round(patrimonio_atual, 2), round(renda_atual, 2)])
+     
+    # --- 3. LEITURA DO HISTÓRICO SALVO ---
+    print(f"{'Data Ref.':<11} | {'Patrimônio Líquido':<20} | {'Renda Recorrente':<16}")
+    print("-" * 55)
+     
+    dados_historicos = []
+    with open(caminho_hist, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for linha in reader:
+            dados_historicos.append(linha)
+            print(f"  {linha['Mês/Ano']:<9} | R$ {float(linha['Patrimônio Total']):>16,.2f} | R$ {float(linha['Renda Estimada']):>12,.2f}")
+             
+    print("-" * 55)
+     
+    # --- 4. OPÇÃO DE SALVAR O CORTE ATUAL ---
+    print("\nDeseja registrar a foto atual da carteira neste histórico?")
+    print("1 - Sim, salvar posição atual")
+    print("0 - Não, voltar ao menu")
+     
+    try:
+        opt = input("Escolha uma opção: ")
+        if opt == "1":
+            # Evita duplicar o mesmo mês/ano no histórico
+            meses_salvos = [d['Mês/Ano'] for d in dados_historicos]
+            if mes_ano_atual in meses_salvos:
+                print(f"⚠ A posição de {mes_ano_atual} já está registrada. Deseja sobrescrever?")
+                confirmar = input("Digita 'S' para sim ou qualquer tecla para cancelar: ").upper()
+                if confirmar != 'S':
+                    print("Operação cancelada.")
+                    return
+                # Remove a linha antiga para atualizar
+                dados_historicos = [d for d in dados_historicos if d['Mês/Ano'] != mes_ano_atual]
+             
+            # Adiciona o registro atual
+            with open(caminho_hist, mode='w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Data Registro', 'Mês/Ano', 'Patrimônio Total', 'Renda Estimada'])
+                for d in dados_historicos:
+                    writer.writerow([d['Data Registro'], d['Mês/Ano'], d['Patrimônio Total'], d['Renda Estimada']])
+                writer.writerow([data_hoje, mes_ano_atual, round(patrimonio_atual, 2), round(renda_atual, 2)])
+                 
+            print(f"✅ Posição de {mes_ano_atual} salva com sucesso no banco de dados!")
+    except Exception as e:
+        print(f"❌ Erro ao atualizar banco de dados: {e}")

@@ -1,0 +1,84 @@
+import yfinance as yf
+import pandas as pd
+
+def buscar_dados_acao(ticker):
+    """
+    Busca o preço atual e calcula o dividendo dos últimos 12 meses via yfinance.
+    Exemplo de ticker: 'BBAS3.SA', 'TAEE11.SA', 'ITSA4.SA'
+    """
+    ticker_yf = f"{ticker.upper()}.SA" if not ticker.endswith(".SA") else ticker.upper()
+    ativo = yf.Ticker(ticker_yf)
+    
+    # Preço Atual
+    info = ativo.fast_info
+    preco_atual = info.get('lastPrice', 0.0)
+    
+    # Dividendos dos últimos 12 meses
+    dividendo_12m = 0.0
+    try:
+        divs = ativo.dividends
+        if not divs.empty:
+            # Filtra os dividendos dos últimos 365 dias
+            uma_ano_atras = pd.Timestamp.now(tz=divs.index.tz) - pd.Timedelta(days=365)
+            divs_12m = divs[divs.index >= uma_ano_atras]
+            dividendo_12m = float(divs_12m.sum())
+    except Exception:
+        dividendo_12m = 0.0
+        
+    return preco_atual, dividendo_12m
+
+def analisar_acoes_bazin(lista_tickers):
+    """
+    Aplica a metodologia de Décio Bazin para uma lista de ações:
+    1. Preço Teto = Dividendo 12M / 0.06 (6% a.a.)
+    2. Margem de Segurança = ((Preço Teto - Preço Atual) / Preço Atual) * 100
+    """
+    resultados = []
+    
+    print("\n🔍 Analisando Ações via Método Décio Bazin (Aguarde...)...\n")
+    
+    for ticker in lista_tickers:
+  
+        preco, div_12m = buscar_dados_acao(ticker)
+        
+        if preco == 0:
+            continue
+            
+        preco_teto = div_12m / 0.06
+        dy_12m = (div_12m / preco) * 100 if preco > 0 else 0
+        
+        if preco_teto > 0:
+            margem = ((preco_teto - preco) / preco) * 100
+        else:
+            margem = -100.0
+            
+        status = "🟢 COMPRAR" if preco <= preco_teto and preco_teto > 0 else "🔴 AGUARDAR"
+        
+        resultados.append({
+            "Ticker": ticker.upper().replace(".SA", ""),
+            "Preço Atual": f"R$ {preco:.2f}",
+            "Div 12M": f"R$ {div_12m:.2f}",
+            "DY 12M": f"{dy_12m:.2f}%",
+            "Preço Teto": f"R$ {preco_teto:.2f}",
+            "Margem (%)": f"{margem:+.2f}%",
+            "Status": status
+        })
+        
+    df_resultado = pd.DataFrame(resultados)
+    return df_resultado
+
+def exibir_painel_bazin(df_resultado):
+    """Exibe o painel formatado no terminal"""
+    print("=" * 75)
+    print(" " * 20 + "PAINEL DE AÇÕES - MÉTODO DÉCIO BAZIN")
+    print("=" * 75)
+    
+    if df_resultado.empty:
+        print("Nenhuma ação encontrada ou dados indisponíveis.")
+        return
+
+    # Exibição tabulada simples
+    print(df_resultado.to_string(index=False))
+    print("=" * 75)
+    print("💡 Regra: Preço Teto baseado em DY mínimo de 6% a.a. (Div 12M / 0.06)")
+    print("=" * 75)
