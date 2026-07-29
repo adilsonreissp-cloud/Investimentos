@@ -3,103 +3,152 @@ import requests
 import yfinance as yf
 import pandas as pd
 
+TOKEN_BRAPI = "qJH13J2kHzxkgBPcMy6STj"
+
 def buscar_dados_brapi(ticker):
-    TOKEN = "qJH13J2kHzxkgBPcMy6STj"
-    ticker_limpo = ticker.replace(".SA", "").upper()
-    url = f"https://brapi.dev/api/v2/stocks/quote?symbols={ticker_limpo}.SA&dividends=true&token={TOKEN}"
-    
+    """
+    Busca o histórico de dividendos via BRAPI e formata no padrão esperado pelo OASIS35.
+    """
+    ticker_limpo = str(ticker).replace(".SA", "").strip().upper()
+    historico_divs = []
+
+    # 1. TENTA ENDPOINT A (Quote com Dividends)
+    url_quote = f"https://brapi.dev/api/v2/stocks/quote?symbols={ticker_limpo}.SA&dividends=true&token={TOKEN_BRAPI}"
     try:
-        response = requests.get(url)
-        if response.status_code != 200:
-            print(f"⚠️ Erro na BRAPI (Status {response.status_code}). Redirecionando para Yahoo...")
-            return buscar_dados_yahoo(ticker_limpo)
-        dados = response.json()
-    except Exception as e:
-        print(f"⚠️ Erro na requisição BRAPI: {e}. Redirecionando para Yahoo...")
-        return buscar_dados_yahoo(ticker_limpo)
+        resp = requests.get(url_quote, timeout=10)
+        if resp.status_code == 200:
+            dados = resp.json()
+            if dados.get("results"):
+                historico_divs = dados["results"][0].get("dividendsData", {}).get("cashDividends", [])
+    except Exception:
+        pass
 
-    if not dados.get("results"):
-        return None
-
-    # Tenta extrair da BRAPI primeiro
-    historico_divs = dados["results"][0].get("dividendsData", {}).get("cashDividends", [])
-
-    # PLANO B: Se a BRAPI vier vazia, buscamos no Yahoo Finance!
+    # 2. TENTA ENDPOINT B (Prime Dividends para FIIs novos como JMBI11)
     if not historico_divs:
+        url_divs = f"https://brapi.dev/api/v2/prime/dividends?ticker={ticker_limpo}&token={TOKEN_BRAPI}"
         try:
-            ativo_yf = yf.Ticker(f"{ticker_limpo}.SA")
-            hist_yf = ativo_yf.actions
-            if not hist_yf.empty and "Dividends" in hist_yf.columns:
-                historico_divs = [{"declarationDate": str(dt), "rate": val} for dt, val in hist_yf["Dividends"].items() if val > 0]
+            resp_div = requests.get(url_divs, timeout=10)
+            if resp_div.status_code == 200:
+                dados_div = resp_div.json()
+                historico_divs = dados_div.get("results", [])
         except Exception:
             pass
 
-    # --- CONTINGÊNCIA SE O PLANO B TAMBÉM FALHAR ---
+    # Se a BRAPI zerar/falhar, vai para o Yahoo Finance
     if not historico_divs:
-        print(f"⚠️ Dados insuficientes na BRAPI/Plano B para {ticker_limpo}. Tentando motor completo do Yahoo...")
         return buscar_dados_yahoo(ticker_limpo)
 
-    lista_final = []
+    # Busca historico de cotações para casar o preço na Data COM
+    try:
+        ativo_yf = yf.Ticker(f"{ticker_limpo}.SA")
+        df_hist = ativo_yf.history(period="max", auto_adjust=False)
+        if not df_hist.empty:
+            df_hist.index = df_hist.index.tz_localize(None)
+    except Exception:
+        df_hist = pd.DataFrame()
 
-    # Mapeia os dados vindos para o padrão do robô
+    registros = []
     for div in historico_divs:
-        data_com_str = div.get("declarationDate") or div.get("paymentDate")
-        if not data_com_str:
+        raw_com = div.get("declarationDate") or div.get("approvedOn") or div.get("paymentDate") or div.get("date")
+        raw_pag = div.get("paymentDate")
+        
+        if not raw_com:
             continue
 
-        data_com = pd.to_datetime(data_com_str[:10])
-        dy_valor = float(div.get("rate", 0))
-        
-        lista_final.append({"data_com": data_com, "valor": dy_valor})
-        
-    return lista_final
+        dt_com_obj = pd.to_datetime(str(raw_com)[:10], errors='coerce')
+        dt_pag_obj = pd.to_datetime(str(raw_pag)[:10], errors='coerce') if raw_pag else None
+
+        if pd.notnull(dt_com_obj):
+            val_dy = float(div.get("rate", 0.0) or div.get("value", 0.0))
+            if val_dy <= 0:
+                continue
+
+            preco_cot = 0.0
+            if not df_hist.empty and 'Close' in df_hist.columns:
+                val_fech = df_hist['Close'].asof(dt_com_obj)
+                if pd.notnull(val_fech) and val_fech > 0:
+                    preco_cot = float(val_fech)
+
+            dt_com_str = dt_com_obj.strftime('%d/%m/%Y')
+            dt_pag_str = dt_pag_obj.strftime('%d/%m/%Y') if pd.notnull(dt_pag_obj) else '-'
+
+            registros.append({
+                'Data COM': dt_com_str,
+                'Data Pagamento': dt_pag_str,
+                'DY': val_dy,
+                'Preço': preco_cot,
+                'Cotação PAGT': preco_cot,
+                'Yield (%)': (val_dy / preco_cot * 100) if preco_cot > 0 else 0.0,
+                'Data_DT': dt_com_obj
+            })
+
+    if registros:
+        df = pd.DataFrame(registros)
+        df['Mês/Ano'] = df['Data_DT'].dt.strftime('%b / %y')
+        return df
+
+    return buscar_dados_yahoo(ticker_limpo)
+
 
 def buscar_dados_yahoo(ticker):
-    """Busca o histórico e calcula com os preços ajustados reais do Yahoo Finance"""
-    ticker_yf = f"{ticker}.SA" if not ticker.endswith(".SA") else ticker
-    ticker_obj = yf.Ticker(ticker_yf)
-
-    # 1. Pega os dividendos cadastrados
-    df_divs = ticker_obj.dividends
-    if df_divs.empty:
-        return None
-
-    df_resultado = pd.DataFrame(df_divs)
-    df_resultado.columns = ['DY']
-    df_resultado.index = df_resultado.index.tz_localize(None)
-
-    # 2. Busca o histórico de preços
-    df_hist = ticker_obj.history(period="5y", auto_adjust=False)
-    if df_hist.empty:
-        return None
-    df_hist.index = df_hist.index.tz_localize(None)
-
-    # 3. Cruza os dados buscando os preços históricos reais
-    precos_na_data = []
-    for data in df_resultado.index:
-        ajuste_data = df_hist['Close'].asof(data)
+    """
+    Fallback usando Yahoo Finance formatado para a estrutura do OASIS35.
+    """
+    ticker_limpo = str(ticker).replace(".SA", "").strip().upper()
+    ticker_yf = f"{ticker_limpo}.SA"
+    
+    try:
+        fii_yf = yf.Ticker(ticker_yf)
         
-        # BLINDAGEM INTELIGENTE: Só interfere se o preço vier completamente zerado ou inválido
-        if pd.isna(ajuste_data) or ajuste_data <= 0:
-            ajuste_data = 10.0 if ticker.upper() == 'SNAG11' else 75.0
+        # Pega proventos do Yahoo
+        df_divs = fii_yf.dividends
+        if df_divs.empty:
+            return pd.DataFrame()
+
+        hist = fii_yf.history(period="5y", auto_adjust=False)
+        if not hist.empty:
+            hist.index = hist.index.tz_localize(None)
+
+        dados_yf = []
+        for dt, val_dy in df_divs.items():
+            val_dy = float(val_dy)
+            if val_dy <= 0:
+                continue
+
+            dt_clean = dt.tz_localize(None) if hasattr(dt, 'tz_localize') and dt.tz else dt
             
-        precos_na_data.append(round(float(ajuste_data), 2))
+            preco_cot = 0.0
+            if not hist.empty and 'Close' in hist.columns:
+                val_f = hist['Close'].asof(dt_clean)
+                if pd.notnull(val_f) and val_f > 0:
+                    preco_cot = float(val_f)
 
-    df_resultado['Preço'] = precos_na_data
-    df_resultado = df_resultado.dropna().copy()
+            # Correção de anomalias conhecidas no SNAG11 do Yahoo
+            if ticker_limpo == 'SNAG11':
+                if val_dy > 0.30:
+                    val_dy = val_dy / 10
+                elif val_dy < 0.08 and dt_clean.year == 2022:
+                    val_dy = 0.12
 
-    # 4. Corrige anomalias específicas de proventos do Yahoo para o SNAG11
-    for idx, linha in df_resultado.iterrows():
-        if ticker.upper() == 'SNAG11':
-            if linha['DY'] > 0.30:
-                df_resultado.at[idx, 'DY'] = linha['DY'] / 10
-            elif linha['DY'] < 0.08 and idx.year == 2022:
-                df_resultado.at[idx, 'DY'] = 0.12
+            # Cotação zerada de segurança
+            if preco_cot <= 0:
+                preco_cot = 10.0 if ticker_limpo == 'SNAG11' else 100.0
 
-    # Calcula o Yield Real baseado na cotação real da época do pagamento
-    df_resultado['Yield'] = df_resultado['DY'] / df_resultado['Preço']
+            dados_yf.append({
+                'Mês/Ano': dt_clean.strftime('%b / %y'),
+                'Data COM': dt_clean.strftime('%d/%m/%Y'),
+                'Data Pagamento': '-',
+                'DY': val_dy,
+                'Preço': preco_cot,
+                'Cotação PAGT': preco_cot,
+                'Yield (%)': (val_dy / preco_cot * 100) if preco_cot > 0 else 0.0,
+                'Data_DT': dt_clean
+            })
 
-    # Resgata a data para o motor de relatórios
-    df_resultado['Data'] = df_resultado.index
+        if dados_yf:
+            return pd.DataFrame(dados_yf)
 
-    return df_resultado
+    except Exception:
+        pass
+
+    return pd.DataFrame()

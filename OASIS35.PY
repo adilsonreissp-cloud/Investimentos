@@ -632,6 +632,7 @@ if __name__ == "__main__":
         elif opcao == "3":
             ticker_busca = input("\nDigite o Ticker do FII para analisar o histórico (ex: JMBI11): ").strip().upper()
             analisar_fii_historico(ticker_busca, df_oasis)
+      
         elif opcao == "4":
             print("\n==========================================================")
             print("          LABORATÓRIO DE APORTES INTELIGENTES")
@@ -675,9 +676,10 @@ if __name__ == "__main__":
                         pm_orig = float(row.get('PREÇO MÉDIO', p_atual))
                         div_rec = float(row.get('DIVIDENDOS_ACUMULADOS', 0.0))
 
+                # CORREÇÃO 1: Ajustado preço fallback do JMBI11 para Base 100 (R$ 84.70)
                 dados_fallback = {
                     "BDIV11": {"p": 9.50, "prov": 0.280, "pm": 9.80, "div": 30.0, "dia": 23, "meses": [1, 4, 7, 10]},
-                    "JMBI11": {"p": 9.80, "prov": 0.090, "pm": 9.90, "div": 20.0, "dia": 15, "meses": None},
+                    "JMBI11": {"p": 84.70, "prov": 0.900, "pm": 83.66, "div": 20.0, "dia": 15, "meses": None},
                     "VGIA11": {"p": 8.45, "prov": 0.110, "pm": 9.20, "div": 120.0, "dia": 10, "meses": None},
                     "VGIR11": {"p": 9.39, "prov": 0.110, "pm": 9.80, "div": 34.0, "dia": 10, "meses": None},
                     "SNAG11": {"p": 9.80, "prov": 0.105, "pm": 10.05, "div": 47.0, "dia": 15, "meses": None},
@@ -711,18 +713,17 @@ if __name__ == "__main__":
                 dados_fii.update(metricas_calculadas)
                 lista_dados_completos.append(dados_fii)
 
-            # 2. ALGORITMO CAÇADOR DE SPREAD (COM RESTRICÃO BDIV DE QUALIFICADO)
-            # Filtra ativos elegíveis: Spread > 0 E que NÃO sejam o BDIV11
-            ativos_elegiveis = [f for f in lista_dados_completos if f.get("spread", 0) > 0 and f["ticker"] != "BDIV11"]
+            # CORREÇÃO 2: Filtra ativos elegíveis excluindo EXPLICITAMENTE BDIV11 e JMBI11
+            ativos_elegiveis = [f for f in lista_dados_completos if f.get("spread", 0) > 0 and f["ticker"] not in ["BDIV11", "JMBI11"]]
 
             if not ativos_elegiveis:
-                ativos_elegiveis = [f for f in lista_dados_completos if f["ticker"] != "BDIV11"]
+                ativos_elegiveis = [f for f in lista_dados_completos if f["ticker"] not in ["BDIV11", "JMBI11"]]
 
             soma_spreads = sum(f.get("spread", 0) for f in ativos_elegiveis)
 
             p_fmt_aporte = f"R$ {aporte_disponivel:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             print("----------------------------------------------------------")
-            print(f"SUGESTÃO DE COMPRA DINÂMICA (PONDERADA POR SPREAD) - APORTE: {p_fmt_aporte}")
+            print(f"SUGESTÃO DE COMPRA DINÂMICA (EX-BDIV/JMBI) - APORTE: {p_fmt_aporte}")
             print("----------------------------------------------------------\n")
 
             total_gasto = 0.0
@@ -732,10 +733,17 @@ if __name__ == "__main__":
                 ticker = f["ticker"]
                 spread_val = f.get("spread", 0.0)
 
-                # Bloqueio específico por regra de Investidor Qualificado
+                # CORREÇÃO 3: Trava específica para BDIV11 (Qualificado)
                 if ticker == "BDIV11":
                     p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                     print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (Spread: {spread_val:>+5.1f}% 🛑 QUALIFICADO)")
+                    sugestoes_compra[ticker] = 0
+                    continue
+
+                # CORREÇÃO 4: Trava específica para JMBI11 (Limite de Diversificação)
+                if ticker == "JMBI11":
+                    p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (🔒 TETO DIVERSIFICAÇÃO)")
                     sugestoes_compra[ticker] = 0
                     continue
 
@@ -783,7 +791,7 @@ if __name__ == "__main__":
             print("Gatilho Data COM          | " + " | ".join([f"Faltam {f.get('dias_data_com', 0):>3}d" for f in lista_dados_completos]))
             print("Eficiência Fiscal         | " + " | ".join(["   100% 🟢 " for _ in tickers_painel]))
             print("========================================================================================================")
-         
+                 
         elif opcao == "5":
             print("\n" + "=" * 55)
             print("                 COMPARADOR DE FIIs")
