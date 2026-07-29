@@ -9,6 +9,10 @@ logging.getLogger('yfinance').setLevel(logging.CRITICAL)
 
 TOKEN_BRAPI = "qJH13J2kHzxkgBPcMy6STj"
 
+# --- TRAVAS DE SEGURANÇA E REGRA DE NEGÓCIO ---
+TETO_DY_MENSAL_MAX = 1.50  # Filtra amortizações/distorções acima de 1.5% a.m.
+EXCLUIR_FIPS = True         # Ignora FIPs (ex: BDIV11) que exigem Investidor Qualificado
+
 def obter_historico_yahoo(ticker, preco_atual, vpa_brapi):
     """
     Calcula P/VP real e os DYs históricos (2024, 2025 e 2026 Mês)
@@ -71,7 +75,7 @@ def obter_historico_yahoo(ticker, preco_atual, vpa_brapi):
 
 def rodar_screener_b3(arquivo_csv="fiis_b3.csv"):
     print("\n==========================================================================================")
-    print("        OÁSIS 2035 - SCREENER QUANTITATIVO CAÇADOR DE ASSIMETRIAS (P/VP RECALIBRADO)")
+    print("        OÁSIS 2035 - SCREENER QUANTITATIVO CAÇADOR DE ASSIMETRIAS (FILTRADO)")
     print("==========================================================================================")
     
     try:
@@ -94,6 +98,7 @@ def rodar_screener_b3(arquivo_csv="fiis_b3.csv"):
 
         preco = 0.0
         vpa_brapi = 0.0
+        type_fundo = ""
 
         try:
             print(f"\r🔍 Processando [{idx}/{total}]: {ticker:<6}", end="", flush=True)
@@ -103,13 +108,21 @@ def rodar_screener_b3(arquivo_csv="fiis_b3.csv"):
                 if dados:
                     ativo = dados[0]
                     preco = float(ativo.get("regularMarketPrice") or 0.0)
-                    # Pega o Valor Patrimonial por Cota (VPA) se disponível na BRAPI
                     vpa_brapi = float(ativo.get("bookValue") or 0.0)
+                    type_fundo = str(ativo.get("type", "")).upper()
         except Exception:
             pass
 
         if preco > 0:
+            # Trava 1: Exclui FIP / Investidor Qualificado se identificado na API
+            if EXCLUIR_FIPS and ("FIP" in type_fundo or "QUALIFICADO" in type_fundo):
+                continue
+
             pvp_real, dy_24, dy_25, dy_mensal_rec = obter_historico_yahoo(ticker, preco, vpa_brapi)
+
+            # Trava 2: Exclui anomalias / Amortizações não recorrentes (> 1.5% a.m.)
+            if dy_mensal_rec > TETO_DY_MENSAL_MAX:
+                continue
 
             resultados.append({
                 "Ticker": ticker,
@@ -122,10 +135,10 @@ def rodar_screener_b3(arquivo_csv="fiis_b3.csv"):
         
         time.sleep(0.1)
 
-    print("\n\n✅ Varredura com P/VP recalibrado concluída!")
+    print("\n\n✅ Varredura com travas de segurança concluída!")
 
     if not resultados:
-        print("❌ Nenhum dado retornado da API.")
+        print("❌ Nenhum dado atendeu aos critérios de segurança do Screener.")
         return
 
     df = pd.DataFrame(resultados)
@@ -136,7 +149,7 @@ def rodar_screener_b3(arquivo_csv="fiis_b3.csv"):
     vencedores = df.sort_values(by='Score_Final').reset_index(drop=True)
 
     print("\n==========================================================================================")
-    print("                       TOP OPORTUNIDADES DETECTADAS (P/VP RECALIBRADO)")
+    print("                        TOP OPORTUNIDADES REAIS (EX-AMORTIZAÇÃO / EX-FIP)")
     print("==========================================================================================")
     print(f"{'Pos':<4} | {'Ticker':<8} | {'Preço':<10} | {'P/VP':<6} | {'DY 2024':<9} | {'DY 2025':<9} | {'DY 2026 (Mês)':<12} | {'Status'}")
     print("------------------------------------------------------------------------------------------")

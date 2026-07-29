@@ -632,14 +632,13 @@ if __name__ == "__main__":
         elif opcao == "3":
             ticker_busca = input("\nDigite o Ticker do FII para analisar o histórico (ex: JMBI11): ").strip().upper()
             analisar_fii_historico(ticker_busca, df_oasis)
-      
+       
         elif opcao == "4":
             print("\n==========================================================")
-            print("          LABORATÓRIO DE APORTES INTELIGENTES")
+            print("         LABORATÓRIO DE APORTES INTELIGENTES")
             print("==========================================================")
             print("🔄 Atualizando cotações em tempo real do mercado...")
             
-            # Tenta atualizar cotações de forma segura sem quebrar a aplicação
             try:
                 if 'cotacoes' in globals() and hasattr(cotacoes, 'atualizar_cotacoes'):
                     cotacoes.atualizar_cotacoes(df_carteira)
@@ -658,7 +657,6 @@ if __name__ == "__main__":
             lista_dados_completos = []
             tickers_painel = ["BDIV11", "JMBI11", "VGIA11", "VGIR11", "SNAG11", "VHFA11"]
 
-            # Loop para captura de dados e cálculo analítico
             for t in tickers_painel:
                 p_atual = 0.0
                 provento = 0.0
@@ -676,9 +674,9 @@ if __name__ == "__main__":
                         pm_orig = float(row.get('PREÇO MÉDIO', p_atual))
                         div_rec = float(row.get('DIVIDENDOS_ACUMULADOS', 0.0))
 
-                # CORREÇÃO 1: Ajustado preço fallback do JMBI11 para Base 100 (R$ 84.70)
+                # CORREÇÃO 1: Ajustado preço fallback do BDIV11 para o preço real recalibrado (R$ 36.60)
                 dados_fallback = {
-                    "BDIV11": {"p": 9.50, "prov": 0.280, "pm": 9.80, "div": 30.0, "dia": 23, "meses": [1, 4, 7, 10]},
+                    "BDIV11": {"p": 36.60, "prov": 0.280, "pm": 36.60, "div": 30.0, "dia": 23, "meses": [1, 4, 7, 10]},
                     "JMBI11": {"p": 84.70, "prov": 0.900, "pm": 83.66, "div": 20.0, "dia": 15, "meses": None},
                     "VGIA11": {"p": 8.45, "prov": 0.110, "pm": 9.20, "div": 120.0, "dia": 10, "meses": None},
                     "VGIR11": {"p": 9.39, "prov": 0.110, "pm": 9.80, "div": 34.0, "dia": 10, "meses": None},
@@ -708,12 +706,10 @@ if __name__ == "__main__":
                     "meses": fb["meses"]
                 }
 
-                # Executa a função analítica extrema
                 metricas_calculadas = calcular_laboratorio_oasis(dados_fii)
                 dados_fii.update(metricas_calculadas)
                 lista_dados_completos.append(dados_fii)
 
-            # CORREÇÃO 2: Filtra ativos elegíveis excluindo EXPLICITAMENTE BDIV11 e JMBI11
             ativos_elegiveis = [f for f in lista_dados_completos if f.get("spread", 0) > 0 and f["ticker"] not in ["BDIV11", "JMBI11"]]
 
             if not ativos_elegiveis:
@@ -721,56 +717,67 @@ if __name__ == "__main__":
 
             soma_spreads = sum(f.get("spread", 0) for f in ativos_elegiveis)
 
-            p_fmt_aporte = f"R$ {aporte_disponivel:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            print("----------------------------------------------------------")
-            print(f"SUGESTÃO DE COMPRA DINÂMICA (EX-BDIV/JMBI) - APORTE: {p_fmt_aporte}")
-            print("----------------------------------------------------------\n")
-
-            total_gasto = 0.0
+            # --- ALOCAÇÃO INICIAL ---
             sugestoes_compra = {}
+            total_gasto = 0.0
 
             for f in lista_dados_completos:
                 ticker = f["ticker"]
                 spread_val = f.get("spread", 0.0)
 
-                # CORREÇÃO 3: Trava específica para BDIV11 (Qualificado)
-                if ticker == "BDIV11":
-                    p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (Spread: {spread_val:>+5.1f}% 🛑 QUALIFICADO)")
+                if ticker in ["BDIV11", "JMBI11"] or spread_val <= 0:
                     sugestoes_compra[ticker] = 0
                     continue
 
-                # CORREÇÃO 4: Trava específica para JMBI11 (Limite de Diversificação)
-                if ticker == "JMBI11":
-                    p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (🔒 TETO DIVERSIFICAÇÃO)")
-                    sugestoes_compra[ticker] = 0
-                    continue
-
-                # Bloqueio por Quarentena (Spread negativo)
-                if spread_val <= 0:
-                    p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (Spread: {spread_val:>+5.1f}% ⚠️ QUARENTENA)")
-                    sugestoes_compra[ticker] = 0
-                    continue
-                    
                 proporcao_fundo = spread_val / soma_spreads if soma_spreads > 0 else 0
                 capital_destinado = aporte_disponivel * proporcao_fundo
-                
                 qtd_cotas = int(capital_destinado // f["preco_atual"])
-                custo_total_ativo = qtd_cotas * f["preco_atual"]
                 
                 sugestoes_compra[ticker] = qtd_cotas
-                total_gasto += custo_total_ativo
-                
-                dy_mensal_tela = (f["ultimo_provento"] / f["preco_atual"]) * 100 if f["preco_atual"] > 0 else 0.0
-                
+                total_gasto += qtd_cotas * f["preco_atual"]
+
+            # CORREÇÃO 2: LOOP VARRE-SOBRAS (Otimização do Troco)
+            # Tenta encaixar cotas extras com a sobra do caixa priorizando o maior spread
+            saldo_residual = aporte_disponivel - total_gasto
+            ativos_para_sobra = sorted(ativos_elegiveis, key=lambda x: x.get("spread", 0), reverse=True)
+            
+            houve_compra_sobra = True
+            while houve_compra_sobra:
+                houve_compra_sobra = False
+                for f in ativos_para_sobra:
+                    ticker = f["ticker"]
+                    preco = f["preco_atual"]
+                    if saldo_residual >= preco:
+                        sugestoes_compra[ticker] += 1
+                        total_gasto += preco
+                        saldo_residual -= preco
+                        houve_compra_sobra = True
+                        break  # Recomeça a varredura do maior spread para o menor
+
+            # --- EXIBIÇÃO DA SUGESTÃO NA TELA ---
+            p_fmt_aporte = f"R$ {aporte_disponivel:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            print("----------------------------------------------------------")
+            print(f"SUGESTÃO DE COMPRA DINÂMICA (EX-BDIV/JMBI) - APORTE: {p_fmt_aporte}")
+            print("----------------------------------------------------------\n")
+
+            for f in lista_dados_completos:
+                ticker = f["ticker"]
+                spread_val = f.get("spread", 0.0)
+                qtd_cotas = sugestoes_compra[ticker]
+                custo_total_ativo = qtd_cotas * f["preco_atual"]
                 p_atual_fmt = f"R$ {f['preco_atual']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 tot_fmt = f"R$ {custo_total_ativo:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                
-                print(f"Comprar {qtd_cotas:>3} cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: {tot_fmt:>10} (DY: {dy_mensal_tela:.2f}%)")
 
-            saldo_residual = aporte_disponivel - total_gasto
+                if ticker == "BDIV11":
+                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (Spread: {spread_val:>+5.1f}% 🛑 QUALIFICADO)")
+                elif ticker == "JMBI11":
+                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (🔒 TETO DIVERSIFICAÇÃO)")
+                elif spread_val <= 0:
+                    print(f"Comprar   0 cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: R$       0,00 (Spread: {spread_val:>+5.1f}% ⚠️ QUARENTENA)")
+                else:
+                    dy_mensal_tela = (f["ultimo_provento"] / f["preco_atual"]) * 100 if f["preco_atual"] > 0 else 0.0
+                    print(f"Comprar {qtd_cotas:>3} cotas de {ticker:<6} | Preço: {p_atual_fmt:>10} | Total: {tot_fmt:>10} (DY: {dy_mensal_tela:.2f}%)")
+
             tot_util_fmt = f"R$ {total_gasto:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             troco_fmt = f"R$ {saldo_residual:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -781,7 +788,7 @@ if __name__ == "__main__":
 
             # 3. EXIBIÇÃO DA TABELA ANALÍTICA CORRIGIDA
             print("========================================================================================================")
-            print("                               LABORATÓRIO OÁSIS 2035 - MÉTRICAS EXTREMAS")
+            print("                                LABORATÓRIO OÁSIS 2035 - MÉTRICAS EXTREMAS")
             print("========================================================================================================")
             print("MÉTRICA AVANÇADA          |  " + "    |  ".join(tickers_painel) + "    ")
             print("--------------------------------------------------------------------------------------------------------")
@@ -791,7 +798,6 @@ if __name__ == "__main__":
             print("Gatilho Data COM          | " + " | ".join([f"Faltam {f.get('dias_data_com', 0):>3}d" for f in lista_dados_completos]))
             print("Eficiência Fiscal         | " + " | ".join(["   100% 🟢 " for _ in tickers_painel]))
             print("========================================================================================================")
-                 
         elif opcao == "5":
             print("\n" + "=" * 55)
             print("                 COMPARADOR DE FIIs")
