@@ -1,4 +1,16 @@
 import os
+import sys
+
+# Detecta automaticamente se está no Android (Termux) ou no Desktop Linux
+CAMINHO_DESKTOP = "/run/user/1000/gvfs/google-drive:host=gmail.com,user=adilsonreissp/0ANi7kEn2mUOzUk9PVA/107uiQP4vgGWGRrEytx_6kgm5HMBHBZVM/Dados"
+CAMINHO_CELULAR = "/storage/emulated/0/Investimentos/Dados" # ou a pasta do seu Drive/armazenamento no Android
+
+if os.path.exists("/sdcard") or "com.termux" in os.environ.get("PREFIX", ""):
+    PASTA_DADOS = CAMINHO_CELULAR
+else:
+    PASTA_DADOS = CAMINHO_DESKTOP
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csv
 import pandas as pd
 import yfinance as yf
@@ -23,7 +35,7 @@ from Modulos.gerenciador_fiis import menu_gerenciar_fiis
 from Modulos.acoes import menu_radar_acoes
 from metricas_extremas import calcular_laboratorio_oasis, exibir_painel_oasis_2035
 
-PASTA_DADOS = "Dados"
+PASTA_DADOS = "/run/user/1000/gvfs/google-drive:host=gmail.com,user=adilsonreissp/0ANi7kEn2mUOzUk9PVA/107uiQP4vgGWGRrEytx_6kgm5HMBHBZVM/Dados"
 
 def mostrar_painel_oasis(df):
     print("\n" + "=" * 90)
