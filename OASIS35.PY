@@ -849,10 +849,7 @@ if __name__ == "__main__":
 
         elif opcao == "9":
             menu_gerenciar_fiis()
-            # Dentro da função onde salva a carteira atualizada:
-            salvar_carteira_json(carteira)
-            auto_sync_github()  # <--- Sincroniza na hora que alterou a cota
-            
+        
         elif opcao == "0":
             auto_sync_github()  # <--- Adiciona aqui antes de fechar
             print("\nAté logo, Adilson! Bons investimentos rumo a 2035.")
