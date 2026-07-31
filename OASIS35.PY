@@ -6,6 +6,7 @@ import requests
 import logging
 import Modulos.cotacoes as cotacoes
 import os
+import subprocess
 def auto_pull_github():
     try:
         print("🔄 Buscando atualizações do celular na nuvem...")
