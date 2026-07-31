@@ -225,14 +225,24 @@ import sys
 
 
 def auto_sync_github():
+    print("\n🔄 Sincronizando alterações com o GitHub...")
     try:
-        print("\n🔄 Sincronizando alterações com o GitHub...")
-        os.system("git add .")
-        os.system('git commit -m "Atualizacao automatica via Termux"')
-        os.system("git push origin main")
-        print("✅ Dados enviados para a nuvem com sucesso!")
+        # 1. Puxa novidades primeiro para evitar conflitos de branch
+        subprocess.run(["git", "pull", "origin", "main", "--no-rebase"], check=False)
+        
+        # 2. Prepara e cria o commit das alterações locais
+        subprocess.run(["git", "add", "."], check=True)
+        subprocess.run(["git", "commit", "-m", "Atualizacao automatica OASIS 2035"], check=False)
+        
+        # 3. Envia para o GitHub e captura o retorno real do comando
+        resultado = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
+        
+        if resultado.returncode == 0:
+            print("✅ Dados sincronizados com a nuvem com sucesso!")
+        else:
+            print("⚠️ Não foi possível enviar para o GitHub. Verifique conexões ou conflitos pendentes.")
     except Exception as e:
-        print(f"⚠️ Não foi possível sincronizar no momento: {e}")
+        print(f"❌ Erro ao sincronizar: {e}")
 
 def obter_historico_brapi(ticker):
     """
