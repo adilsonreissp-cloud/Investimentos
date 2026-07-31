@@ -849,6 +849,7 @@ if __name__ == "__main__":
 
         elif opcao == "9":
             menu_gerenciar_fiis()
+            auto_sync_github()  # <-- Dispara a sincronização ao sair do menu de FIIs!
         
         elif opcao == "0":
             auto_sync_github()  # <--- Adiciona aqui antes de fechar

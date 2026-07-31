@@ -2,7 +2,6 @@ import os
 import pandas as pd
 import os
 import pandas as pd
-from OASIS35 import auto_sync_github  # <-- Adicione esta linha
 
 PASTA_DADOS = "Dados"
 ARQUIVO_CARTEIRA = os.path.join(PASTA_DADOS, "carteira.csv")
@@ -30,15 +29,9 @@ def carregar_carteira():
     return pd.DataFrame(columns=["FII", "Quantidade", "PrecoMedio"])
 
 def salvar_carteira(df):
-    """Salva o DataFrame de volta no Dados/carteira.csv e sincroniza com o GitHub"""
+    """Salva o DataFrame de volta no Dados/carteira.csv"""
     os.makedirs(PASTA_DADOS, exist_ok=True)
     df.to_csv(ARQUIVO_CARTEIRA, sep=";", index=False)
-    
-    # <-- ADICIONE AQUI: Sincroniza automaticamente a cada alteração de cotas!
-    try:
-        auto_sync_github()
-    except Exception as e:
-        pass
 
 def garantir_cadastro_ativo(ticker, preco_medio=10.0, dy_esperado=0.10):
     """Garante que o FII também exista no Dados/ativos.csv para não dar erro no merge"""
