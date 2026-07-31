@@ -7,3 +7,4 @@ __pycache__/
 .~lock.*.xlsx#
 __pycache__/
 *.pyc
+Dados/OASIS.log
