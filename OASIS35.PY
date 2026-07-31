@@ -5,6 +5,13 @@ import yfinance as yf
 import requests
 import logging
 import Modulos.cotacoes as cotacoes
+import os
+def auto_pull_github():
+    try:
+        print("🔄 Buscando atualizações do celular na nuvem...")
+        os.system("git pull origin main")
+    except Exception as e:
+        print(f"⚠️ Não foi possível sincronizar na abertura: {e}")
 
 # Silencia logs de erro indesejados do yfinance e urllib no terminal
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
