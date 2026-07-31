@@ -1,17 +1,22 @@
 import os
+import sys
+
+# Detecta automaticamente se está no Android (Termux) ou no Desktop Linux
+CAMINHO_DESKTOP = "/run/user/1000/gvfs/google-drive:host=gmail.com,user=adilsonreissp/0ANi7kEn2mUOzUk9PVA/107uiQP4vgGWGRrEytx_6kgm5HMBHBZVM/Dados"
+CAMINHO_CELULAR = "/storage/emulated/0/Investimentos/Dados" # ou a pasta do seu Drive/armazenamento no Android
+
+if os.path.exists("/sdcard") or "com.termux" in os.environ.get("PREFIX", ""):
+    PASTA_DADOS = CAMINHO_CELULAR
+else:
+    PASTA_DADOS = CAMINHO_DESKTOP
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import csv
 import pandas as pd
 import yfinance as yf
 import requests
 import logging
 import Modulos.cotacoes as cotacoes
-import os
-def auto_pull_github():
-    try:
-        print("🔄 Buscando atualizações do celular na nuvem...")
-        os.system("git pull origin main")
-    except Exception as e:
-        print(f"⚠️ Não foi possível sincronizar na abertura: {e}")
 
 # Silencia logs de erro indesejados do yfinance e urllib no terminal
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -30,7 +35,7 @@ from Modulos.gerenciador_fiis import menu_gerenciar_fiis
 from Modulos.acoes import menu_radar_acoes
 from metricas_extremas import calcular_laboratorio_oasis, exibir_painel_oasis_2035
 
-PASTA_DADOS = "Dados"
+PASTA_DADOS = "/run/user/1000/gvfs/google-drive:host=gmail.com,user=adilsonreissp/0ANi7kEn2mUOzUk9PVA/107uiQP4vgGWGRrEytx_6kgm5HMBHBZVM/Dados"
 
 def mostrar_painel_oasis(df):
     print("\n" + "=" * 90)
@@ -219,20 +224,6 @@ import yfinance as yf
 
 # Token oficial da sua conta BRAPI
 TOKEN_BRAPI = "qJH13J2kHzxkgBPcMy6STj"
-
-import os
-import sys
-
-
-def auto_sync_github():
-    try:
-        print("\n🔄 Sincronizando alterações com o GitHub...")
-        os.system("git add .")
-        os.system('git commit -m "Atualizacao automatica via Termux"')
-        os.system("git push origin main")
-        print("✅ Dados enviados para a nuvem com sucesso!")
-    except Exception as e:
-        print(f"⚠️ Não foi possível sincronizar no momento: {e}")
 
 def obter_historico_brapi(ticker):
     """
@@ -838,14 +829,11 @@ if __name__ == "__main__":
 
         elif opcao == "9":
             menu_gerenciar_fiis()
-            # Dentro da função onde salva a carteira atualizada:
-            salvar_carteira(carteira)
-            auto_sync_github()  # <--- Sincroniza na hora que alterou a cota
-            
+
         elif opcao == "0":
-            auto_sync_github()  # <--- Adiciona aqui antes de fechar
             print("\nAté logo, Adilson! Bons investimentos rumo a 2035.")
             import sys
             sys.exit(0)
+
         else:
             print(f"\nOpção '{opcao}' inválida. Tente novamente.")
