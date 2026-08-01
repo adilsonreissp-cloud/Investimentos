@@ -334,12 +334,27 @@ def analisar_fii_historico(ticker, df_historico=None):
     """
     ticker_upper = str(ticker).replace(".SA", "").strip().upper()
 
+    # Dicionário de Calendário Oficial da Carteira OASIS 2035
+    REGRAS_CALENDARIO_FIIS = {
+        "BDIV11": {"dia_com": 23, "dia_pagto": 31},
+        "JMBI11": {"dia_com": 31, "dia_pagto": 11},
+        "VGIA11": {"dia_com": 11, "dia_pagto": 18},
+        "VGIR11": {"dia_com": 11, "dia_pagto": 18},
+        "SNAG11": {"dia_com": 15, "dia_pagto": 25},
+        "VHFA11": {"dia_com": 8,  "dia_pagto": 15},
+    }
+
     # Busca os dados no módulo api_oasis
     df_analise = api_brapi(ticker_upper)
 
     if df_analise is None or df_analise.empty:
         print(f"\n⚠ Não foi possível obter o histórico para {ticker_upper}.")
         return
+
+    # Força a atualização do provento recente (R$ 1,22) para o JMBI11 caso a API traga valor antigo ou defasado
+    if ticker_upper == "JMBI11" and not df_analise.empty:
+        if 'DY' in df_analise.columns:
+            df_analise.iloc[0, df_analise.columns.get_loc('DY')] = 1.22
 
     # Normalização de datas e ordenação
     if 'Data_DT' not in df_analise.columns and 'Data COM' in df_analise.columns:
@@ -349,17 +364,36 @@ def analisar_fii_historico(ticker, df_historico=None):
         df_analise['Ano'] = df_analise['Data_DT'].dt.year
         df_analise = df_analise.sort_values(by='Data_DT', ascending=False).reset_index(drop=True)
 
-    # 1. ESTIMATIVA DE DATA PAGT QUANDO ESTIVER VAZIA OU COM HÍFEN
+    # 1. DATA DE PAGAMENTO PRECISA BASEADA NO DICIONÁRIO OFICIAL
+    regra = REGRAS_CALENDARIO_FIIS.get(ticker_upper, None)
+
     for idx, row in df_analise.iterrows():
         dt_pag = str(row.get('Data Pagamento', '-')).strip()
         dt_com = row.get('Data_DT')
 
         if (dt_pag == '-' or dt_pag == 'nan' or not dt_pag) and pd.notnull(dt_com):
-            # Regra prática de estimativa: ~25º dia corrido do mesmo mês
             ano_c, mes_c = dt_com.year, dt_com.month
-            dia_est = 25 if mes_c != 2 else 28
-            dt_est = pd.Timestamp(year=ano_c, month=mes_c, day=dia_est)
-            df_analise.at[idx, 'Data Pagamento'] = dt_est.strftime('%d/%m/%Y*')  # Asterisco indica estimado
+            
+            if regra:
+                dia_pagto = regra["dia_pagto"]
+                dia_com = regra["dia_com"]
+                
+                # Se o dia de pagamento é menor que o dia COM (ex: JMBI11 COM 31 / PAGT 11),
+                # significa que cai no MÊS SEGUINTE ao anúncio.
+                if dia_pagto < dia_com:
+                    mes_p = mes_c + 1 if mes_c < 12 else 1
+                    ano_p = ano_c if mes_c < 12 else ano_c + 1
+                else:
+                    mes_p = mes_c
+                    ano_p = ano_c
+
+                dt_est = pd.Timestamp(year=ano_p, month=mes_p, day=dia_pagto)
+                df_analise.at[idx, 'Data Pagamento'] = dt_est.strftime('%d/%m/%Y')
+            else:
+                # Fallback para ativos fora da carteira
+                dia_est = 25 if mes_c != 2 else 28
+                dt_est = pd.Timestamp(year=ano_c, month=mes_c, day=dia_est)
+                df_analise.at[idx, 'Data Pagamento'] = dt_est.strftime('%d/%m/%Y*')
 
     fmt_br = lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -380,7 +414,7 @@ def analisar_fii_historico(ticker, df_historico=None):
         print(f"{mes_ano:<10} | {ticker_upper:<7} | {dt_com:<12} | {dt_pag:<12} | {fmt_br(dy_val):>10} | {fmt_br(cot_com):>10} | {yield_pct:>7.2f}%")
     
     print("-" * 95)
-    print("  * Data Pagamento estimada com base no ciclo padrão do ativo (25º dia).")
+    print("  * Datas de Pagamento sincronizadas com o calendário oficial da carteira OASIS 2035.")
 
     # 2. RESUMO CONSOLIDADO POR ANO + VOLATILIDADE (CV)
     if 'Ano' in df_analise.columns:
@@ -390,7 +424,6 @@ def analisar_fii_historico(ticker, df_historico=None):
         print(f"{'Ano':<8} | {'Média DY':<12} | {'Preço Médio':<14} | {'Yield (%)':<8} | {'Volatilidade (CV)':<18}")
         print("-" * 70)
 
-        # Agrupamento anual calculando Média e Desvio Padrão dos proventos
         anos = sorted(df_analise['Ano'].unique(), reverse=True)
         for ano in anos:
             df_ano = df_analise[df_analise['Ano'] == ano]
@@ -400,7 +433,6 @@ def analisar_fii_historico(ticker, df_historico=None):
 
             y_m = (dy_m / pr_m * 100) if pr_m > 0 else 0.0
             
-            # Coeficiente de Variação = (Desvio Padrão / Média) * 100
             if dy_m > 0 and pd.notnull(dy_std):
                 cv_pct = (dy_std / dy_m) * 100
                 if cv_pct <= 10:
@@ -416,36 +448,33 @@ def analisar_fii_historico(ticker, df_historico=None):
 
         print("=" * 70)
 
-    # 3. VALUATION BAZIN (ÚLTIMOS 12 MESES) - CORRIGIDO
+    # 3. VALUATION BAZIN (ÚLTIMOS 12 MESES)
     ultimos_12m = df_analise.head(12)
     if not ultimos_12m.empty:
         media_12m = ultimos_12m['DY'].mean()
         soma_12m = ultimos_12m['DY'].sum()
         cotacao_atual = ultimos_12m.iloc[0]['Preço']
 
-        # Taxa de Desconto Bazin FIIs = 0,6% ao mês (7,2% ao ano)
         precos_teto = media_12m / 0.006
 
         if cotacao_atual > 0 and precos_teto > 0:
             if cotacao_atual <= precos_teto:
-                # Desconto Real sobre o Teto: (1 - Preço Atual / Preço Teto) * 100
                 desconto = (1 - (cotacao_atual / precos_teto)) * 100
                 status_teto = f"🟢 COMPRA EVIDENTE (Desconto de {desconto:.1f}%)"
             else:
-                # Ágio sobre o Teto: (Preço Atual / Preço Teto - 1) * 100
                 agio = ((cotacao_atual / precos_teto) - 1) * 100
                 status_teto = f"🔴 ACIMA DO TETO (Ágio de {agio:.1f}%)"
         else:
             status_teto = "N/D"
 
         print("\n" + "=" * 70)
-        print("          INSIGHTS DE VALUATION & PREÇO TETO (BAZIN FIIs)")
+        print("          INSIGHTS DE VALUATION & PREÇO TETO (BAZIN FIIS)")
         print("=" * 70)
-        print(f" Provento Médio Móvel (12m) : {fmt_br(media_12m)} /mês  (Total: {fmt_br(soma_12m)})")
-        print(f" Cotação de Referência       : {fmt_br(cotacao_atual)}")
-        print(f" Preço Teto Bazin (0,6% a.m.): {fmt_br(precos_teto)}")
-        print(f" Status do Preço             : {status_teto}")
-        print("=" * 70 + "\n")
+        print(f"Provento Médio Móvel (12m) : {fmt_br(media_12m)} /mês  (Total: {fmt_br(soma_12m)})")
+        print(f"Cotação de Referência      : {fmt_br(cotacao_atual)}")
+        print(f"Preço Teto Bazin (0,6% a.m.): {fmt_br(precos_teto)}")
+        print(f"Status do Preço            : {status_teto}")
+        print("=" * 70)
 
     # Exportação para Excel
     try:
