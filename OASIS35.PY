@@ -427,7 +427,7 @@ def analisar_fii_historico(ticker, df_historico=None):
                 dia_pagto = regra["dia_pagto"]
                 dia_com = regra["dia_com"]
                 
-                # Se o dia de pagamento é menor que o dia COM (ex: JMBI11 COM 31 / PAGT 11),
+                # Se o dia de pagamento é menor que o dia COM (ex: JMBI11 COM 30 / PAGT 11),
                 # significa que cai no MÊS SEGUINTE ao anúncio.
                 if dia_pagto < dia_com:
                     mes_p = mes_c + 1 if mes_c < 12 else 1
@@ -792,7 +792,7 @@ if __name__ == "__main__":
                 # CORREÇÃO 1: Ajustado preço fallback do BDIV11 para o preço real recalibrado (R$ 36.60)
                 dados_fallback = {
                     "BDIV11": {"p": 36.60, "prov": 0.280, "pm": 36.60, "div": 30.0, "dia": 23, "meses": [1, 4, 7, 10]},
-                    "JMBI11": {"p": 84.70, "prov": 0.900, "pm": 83.66, "div": 20.0, "dia": 15, "meses": None},
+                    "JMBI11": {"p": 84.70, "prov": 0.900, "pm": 83.66, "div": 20.0, "dia": 30, "meses": None},
                     "VGIA11": {"p": 8.45, "prov": 0.110, "pm": 9.20, "div": 120.0, "dia": 10, "meses": None},
                     "VGIR11": {"p": 9.39, "prov": 0.110, "pm": 9.80, "div": 34.0, "dia": 10, "meses": None},
                     "SNAG11": {"p": 9.80, "prov": 0.105, "pm": 10.05, "div": 47.0, "dia": 15, "meses": None},
