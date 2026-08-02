@@ -386,7 +386,7 @@ def analisar_fii_historico(ticker, df_historico=None):
     # Dicionário de Calendário Oficial da Carteira OASIS 2035
     REGRAS_CALENDARIO_FIIS = {
         "BDIV11": {"dia_com": 23, "dia_pagto": 31},
-        "JMBI11": {"dia_com": 31, "dia_pagto": 11},
+        "JMBI11": {"dia_com": 30, "dia_pagto": 11},
         "VGIA11": {"dia_com": 11, "dia_pagto": 18},
         "VGIR11": {"dia_com": 11, "dia_pagto": 18},
         "SNAG11": {"dia_com": 15, "dia_pagto": 25},
