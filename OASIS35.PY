@@ -7,6 +7,7 @@ import logging
 import Modulos.cotacoes as cotacoes
 import os
 import subprocess
+
 def auto_pull_github():
     try:
         print("🔄 Buscando atualizações do celular na nuvem...")
@@ -245,28 +246,38 @@ def auto_sync_github():
     except Exception as e:
         print(f"❌ Erro ao sincronizar: {e}")
 
-def obter_historico_brapi(ticker):
-    """
-    Busca o histórico de dividendos via BRAPI (v2 Quote + Prime Dividends como contingência).
+import requests
+import yfinance as yf
+import pandas as pd
+
+
+def obter_historico_brapi(ticker, token_brapi):
+    """Busca o histórico de dividendos via BRAPI (v2 Quote + Prime Dividends como contingência)
+
+    e cruza com o histórico de preços do Yahoo Finance.
     """
     ticker_limpo = str(ticker).replace(".SA", "").strip().upper()
-    
+
     # 1. TENTA PRIMEIRO ENDPOINT: STOCKS/QUOTE
-    url_quote = f"https://brapi.dev/api/v2/stocks/quote?symbols={ticker_limpo}.SA&dividends=true&token={TOKEN_BRAPI}"
+    url_quote = f"https://brapi.dev/api/v2/stocks/quote?symbols={ticker_limpo}.SA&dividends=true&token={token_brapi}"
     historico_divs = []
-    
+
     try:
         response = requests.get(url_quote, timeout=10)
         if response.status_code == 200:
             dados = response.json()
             if dados.get("results"):
-                historico_divs = dados["results"][0].get("dividendsData", {}).get("cashDividends", [])
+                historico_divs = (
+                    dados["results"][0]
+                    .get("dividendsData", {})
+                    .get("cashDividends", [])
+                )
     except Exception:
         pass
 
     # 2. CONTINGÊNCIA BRAPI: ENDPOINT DEDICADO DE DIVIDENDOS (caso o quote venha vazio)
     if not historico_divs:
-        url_divs = f"https://brapi.dev/api/v2/prime/dividends?ticker={ticker_limpo}&token={TOKEN_BRAPI}"
+        url_divs = f"https://brapi.dev/api/v2/prime/dividends?ticker={ticker_limpo}&token={token_brapi}"
         try:
             resp_div = requests.get(url_divs, timeout=10)
             if resp_div.status_code == 200:
@@ -278,7 +289,7 @@ def obter_historico_brapi(ticker):
     if not historico_divs:
         return pd.DataFrame()
 
-    # Busca cotações no Yahoo para casar com as datas
+    # 3. BUSCA COTAÇÕES NO YAHOO FINANCE PARA CASAR COM AS DATAS
     try:
         ativo_yf = yf.Ticker(f"{ticker_limpo}.SA")
         df_hist = ativo_yf.history(period="max", auto_adjust=False)
@@ -287,50 +298,88 @@ def obter_historico_brapi(ticker):
     except Exception:
         df_hist = pd.DataFrame()
 
+    # 4. PROCESSAMENTO DOS REGISTROS
     registros = []
     for div in historico_divs:
-        raw_com = div.get("declarationDate") or div.get("approvedOn") or div.get("paymentDate") or div.get("date")
+        # Prioriza a data COM / aprovação
+        raw_com = (
+            div.get("declarationDate")
+            or div.get("approvedOn")
+            or div.get("paymentDate")
+            or div.get("date")
+        )
         raw_pag = div.get("paymentDate")
-        
+
         if not raw_com:
             continue
 
-        dt_com_obj = pd.to_datetime(str(raw_com)[:10], errors='coerce')
-        dt_pag_obj = pd.to_datetime(str(raw_pag)[:10], errors='coerce') if raw_pag else None
+        dt_com_obj = pd.to_datetime(str(raw_com)[:10], errors="coerce")
+        dt_pag_obj = (
+            pd.to_datetime(str(raw_pag)[:10], errors="coerce")
+            if raw_pag
+            else None
+        )
 
         if pd.notnull(dt_com_obj):
             val_dy = float(div.get("rate", 0.0) or div.get("value", 0.0))
-            
-            preco_cot = 0.0
-            if not df_hist.empty and 'Close' in df_hist.columns:
-                val_fech = df_hist['Close'].asof(dt_com_obj)
-                if pd.notnull(val_fech) and val_fech > 0:
-                    preco_cot = float(val_fech)
 
-            dt_com_str = dt_com_obj.strftime('%d/%m/%Y')
-            dt_pag_str = dt_pag_obj.strftime('%d/%m/%Y') if pd.notnull(dt_pag_obj) else '-'
+            # Buscar preço na Data COM
+            preco_com = 0.0
+            if not df_hist.empty and "Close" in df_hist.columns:
+                val_fech = df_hist["Close"].asof(dt_com_obj)
+                if pd.notnull(val_fech) and val_fech > 0:
+                    preco_com = float(val_fech)
+
+            # Buscar preço na Data de Pagamento
+            preco_pag = 0.0
+            if dt_pag_obj and not df_hist.empty and "Close" in df_hist.columns:
+                val_fech_pag = df_hist["Close"].asof(dt_pag_obj)
+                if pd.notnull(val_fech_pag) and val_fech_pag > 0:
+                    preco_pag = float(val_fech_pag)
+
+            dt_com_str = dt_com_obj.strftime("%d/%m/%Y")
+            dt_pag_str = (
+                dt_pag_obj.strftime("%d/%m/%Y")
+                if pd.notnull(dt_pag_obj)
+                else "-"
+            )
 
             registros.append({
-                'Data COM': dt_com_str,
-                'Data Pagamento': dt_pag_str,
-                'DY': val_dy,
-                'Preço': preco_cot,
-                'Cotação PAGT': preco_cot,
-                'Yield (%)': (val_dy / preco_cot * 100) if preco_cot > 0 else 0.0,
-                'Data_DT': dt_com_obj
+                "Data COM": dt_com_str,
+                "Data Pagamento": dt_pag_str,
+                "DY": val_dy,
+                "Preço": preco_com,
+                "Cotação PAGT": preco_pag if preco_pag > 0 else preco_com,
+                "Yield (%)": (val_dy / preco_com * 100)
+                if preco_com > 0
+                else 0.0,
+                "Data_DT": dt_com_obj,
             })
 
+    # 5. CONSTRUÇÃO E RETORNO DO DATAFRAME
     if registros:
         df = pd.DataFrame(registros)
-        df['Mês/Ano'] = df['Data_DT'].dt.strftime('%b / %y')
+        df["Mês/Ano"] = df["Data_DT"].dt.strftime("%b / %y")
         return df
 
     return pd.DataFrame()
 
+import holidays
+# Inicializa os feriados do Brasil
+feriados_br = holidays.BR()
+
+def ajustar_para_dia_util(data_dt):
+    """
+    Avança a data para o próximo dia útil caso caia em sábado (5), domingo (6) ou feriado nacional.
+    """
+    while data_dt.weekday() in (5, 6) or data_dt in feriados_br:
+        data_dt += pd.Timedelta(days=1)
+    return data_dt
+
 def analisar_fii_historico(ticker, df_historico=None):
     """
     Análise avançada do histórico de dividendos com Volatilidade (CV),
-    Estimativa de Data de Pagamento e Valuation Bazin FIIs.
+    Estimativa de Data de Pagamento (ajustada para dias úteis/feriados) e Valuation Bazin FIIs.
     """
     ticker_upper = str(ticker).replace(".SA", "").strip().upper()
 
@@ -364,7 +413,7 @@ def analisar_fii_historico(ticker, df_historico=None):
         df_analise['Ano'] = df_analise['Data_DT'].dt.year
         df_analise = df_analise.sort_values(by='Data_DT', ascending=False).reset_index(drop=True)
 
-    # 1. DATA DE PAGAMENTO PRECISA BASEADA NO DICIONÁRIO OFICIAL
+    # 1. DATA DE PAGAMENTO PRECISA BASEADA NO DICIONÁRIO OFICIAL + AJUSTE DE DIA ÚTIL
     regra = REGRAS_CALENDARIO_FIIS.get(ticker_upper, None)
 
     for idx, row in df_analise.iterrows():
@@ -387,12 +436,17 @@ def analisar_fii_historico(ticker, df_historico=None):
                     mes_p = mes_c
                     ano_p = ano_c
 
-                dt_est = pd.Timestamp(year=ano_p, month=mes_p, day=dia_pagto)
+                dt_base = pd.Timestamp(year=ano_p, month=mes_p, day=dia_pagto)
+                
+                # Aplica o filtro de dia útil (pula fim de semana e feriados BR)
+                dt_est = ajustar_para_dia_util(dt_base)
+                
                 df_analise.at[idx, 'Data Pagamento'] = dt_est.strftime('%d/%m/%Y')
             else:
                 # Fallback para ativos fora da carteira
                 dia_est = 25 if mes_c != 2 else 28
-                dt_est = pd.Timestamp(year=ano_c, month=mes_c, day=dia_est)
+                dt_base = pd.Timestamp(year=ano_c, month=mes_c, day=dia_est)
+                dt_est = ajustar_para_dia_util(dt_base)
                 df_analise.at[idx, 'Data Pagamento'] = dt_est.strftime('%d/%m/%Y*')
 
     fmt_br = lambda v: f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -414,7 +468,7 @@ def analisar_fii_historico(ticker, df_historico=None):
         print(f"{mes_ano:<10} | {ticker_upper:<7} | {dt_com:<12} | {dt_pag:<12} | {fmt_br(dy_val):>10} | {fmt_br(cot_com):>10} | {yield_pct:>7.2f}%")
     
     print("-" * 95)
-    print("  * Datas de Pagamento sincronizadas com o calendário oficial da carteira OASIS 2035.")
+    print("  * Datas de Pagamento sincronizadas com o calendário oficial e ajustadas para dias úteis (OASIS 2035).")
 
     # 2. RESUMO CONSOLIDADO POR ANO + VOLATILIDADE (CV)
     if 'Ano' in df_analise.columns:
