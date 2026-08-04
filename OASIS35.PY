@@ -93,14 +93,22 @@ def mostrar_painel_oasis(df):
         total_ativo = qtde * preco_unitario
         total_carteira += total_ativo
 
+        # --- CORREÇÃO CIRÚRGICA DO PROVENTO POR COTA ---
         dy_esperado_bruto = float(linha.get('DY ESPERADO', 0.0))
-        dy_esperado_mensal = dy_esperado_bruto
+        
+        # Se for JMBI11, garante o valor atualizado de R$ 1,22 por cota
+        if fii_nome == "JMBI11":
+            dy_por_cota = 1.22
+        elif fii_nome == "BDIV11" and dy_esperado_bruto > 0.20:
+            dy_por_cota = dy_esperado_bruto / 3.0  # Ajuste trimestral
+        else:
+            dy_por_cota = dy_esperado_bruto
 
-        dividendo_total_ativo = qtde * dy_esperado_mensal
+        dividendo_total_ativo = qtde * dy_por_cota
         total_dividendos += dividendo_total_ativo
 
         # Yield Percentual Mensal do Ativo
-        yield_perc = (dy_esperado_mensal / preco_unitario * 100) if preco_unitario > 0 else 0.0
+        yield_perc = (dy_por_cota / preco_unitario * 100) if preco_unitario > 0 else 0.0
 
         # Formatações PT-BR
         vlr_un_fmt = f"R$ {preco_unitario:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -121,7 +129,6 @@ def mostrar_painel_oasis(df):
     print(f"TOTAL DA CARTEIRA................: {tot_cart_fmt}")
     print(f"TOTAL DE DIVIDENDOS ESTIMADOS/MÊS.: {tot_div_fmt} (Yield Médio: {yield_medio_carteira:.2f}% a.m.)")
     print("=" * 90 + "\n")
-
 
 def rodar_laboratorio_aportes(df):
     print("\n" + "=" * 55)
