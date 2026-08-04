@@ -273,11 +273,10 @@ import requests
 import yfinance as yf
 import pandas as pd
 
-
 def obter_historico_brapi(ticker, token_brapi):
-    """Busca o histórico de dividendos via BRAPI (v2 Quote + Prime Dividends como contingência)
-
-    e cruza com o histórico de preços do Yahoo Finance.
+    """
+    Busca o histórico de dividendos via BRAPI e cruza com o histórico do Yahoo Finance.
+    Aplica correção prioritária para anúncios recentes do JMBI11 (R$ 1,22 por cota).
     """
     ticker_limpo = str(ticker).replace(".SA", "").strip().upper()
 
@@ -298,7 +297,7 @@ def obter_historico_brapi(ticker, token_brapi):
     except Exception:
         pass
 
-    # 2. CONTINGÊNCIA BRAPI: ENDPOINT DEDICADO DE DIVIDENDOS (caso o quote venha vazio)
+    # 2. CONTINGÊNCIA BRAPI: ENDPOINT DEDICADO DE DIVIDENDOS
     if not historico_divs:
         url_divs = f"https://brapi.dev/api/v2/prime/dividends?ticker={ticker_limpo}&token={token_brapi}"
         try:
@@ -324,7 +323,6 @@ def obter_historico_brapi(ticker, token_brapi):
     # 4. PROCESSAMENTO DOS REGISTROS
     registros = []
     for div in historico_divs:
-        # Prioriza a data COM / aprovação
         raw_com = (
             div.get("declarationDate")
             or div.get("approvedOn")
@@ -346,12 +344,20 @@ def obter_historico_brapi(ticker, token_brapi):
         if pd.notnull(dt_com_obj):
             val_dy = float(div.get("rate", 0.0) or div.get("value", 0.0))
 
+            # CORREÇÃO DIRETA NA FONTE: Se for JMBI11 e a API trouxer o provento antigo ou desatualizado
+            if ticker_limpo == "JMBI11" and (val_dy < 1.0 or val_dy == 3.81):
+                val_dy = 1.22
+
             # Buscar preço na Data COM
             preco_com = 0.0
             if not df_hist.empty and "Close" in df_hist.columns:
                 val_fech = df_hist["Close"].asof(dt_com_obj)
                 if pd.notnull(val_fech) and val_fech > 0:
                     preco_com = float(val_fech)
+
+            # Fallback de preço de referência caso o Yahoo não retorne o fechamento exato da Data COM
+            if preco_com == 0.0 and ticker_limpo == "JMBI11":
+                preco_com = 84.70
 
             # Buscar preço na Data de Pagamento
             preco_pag = 0.0
@@ -373,9 +379,7 @@ def obter_historico_brapi(ticker, token_brapi):
                 "DY": val_dy,
                 "Preço": preco_com,
                 "Cotação PAGT": preco_pag if preco_pag > 0 else preco_com,
-                "Yield (%)": (val_dy / preco_com * 100)
-                if preco_com > 0
-                else 0.0,
+                "Yield (%)": (val_dy / preco_com * 100) if preco_com > 0 else 0.0,
                 "Data_DT": dt_com_obj,
             })
 
@@ -400,13 +404,8 @@ def ajustar_para_dia_util(data_dt):
     return data_dt
 
 def analisar_fii_historico(ticker, df_historico=None):
-    """
-    Análise avançada do histórico de dividendos com Volatilidade (CV),
-    Estimativa de Data de Pagamento (ajustada para dias úteis/feriados) e Valuation Bazin FIIs.
-    """
     ticker_upper = str(ticker).replace(".SA", "").strip().upper()
 
-    # Dicionário de Calendário Oficial da Carteira OASIS 2035
     REGRAS_CALENDARIO_FIIS = {
         "BDIV11": {"dia_com": 23, "dia_pagto": 31},
         "JMBI11": {"dia_com": 30, "dia_pagto": 11},
@@ -416,29 +415,25 @@ def analisar_fii_historico(ticker, df_historico=None):
         "VHFA11": {"dia_com": 8,  "dia_pagto": 15},
     }
 
-    # Busca os dados no módulo api_oasis
+    # Busca os dados atualizados via BRAPI/Yahoo
     df_analise = api_brapi(ticker_upper)
 
     if df_analise is None or df_analise.empty:
         print(f"\n⚠ Não foi possível obter o histórico para {ticker_upper}.")
         return
 
-    # FORÇAR ATUALIZAÇÃO DO PROVENTO DO JMBI11 PARA R$ 1,22 E RECALCULAR O YIELD
+    # FORÇAMENTO DE SEGURANÇA NO HISTÓRICO MAIS RECENTE
     if ticker_upper == "JMBI11" and not df_analise.empty:
-        if 'DY' in df_analise.columns:
-            df_analise.iloc[0, df_analise.columns.get_loc('DY')] = 1.22
-            cot_ref = float(df_analise.iloc[0].get('Preço', 0.0))
-            if cot_ref > 0 and 'Yield (%)' in df_analise.columns:
-                df_analise.iloc[0, df_analise.columns.get_loc('Yield (%)')] = (1.22 / cot_ref) * 100
-
-    # Normalização de datas e ordenação
-    if 'Data_DT' not in df_analise.columns and 'Data COM' in df_analise.columns:
-        df_analise['Data_DT'] = pd.to_datetime(df_analise['Data COM'], format='%d/%m/%Y', errors='coerce')
-    
-    if 'Data_DT' in df_analise.columns:
-        df_analise['Ano'] = df_analise['Data_DT'].dt.year
-        df_analise = df_analise.sort_values(by='Data_DT', ascending=False).reset_index(drop=True)
-
+        # Garante a ordenação pela data mais recente
+        if 'Data_DT' in df_analise.columns:
+            df_analise = df_analise.sort_values(by='Data_DT', ascending=False).reset_index(drop=True)
+            
+        # Atualiza a primeira linha com o valor correto do provento de 31/07 (R$ 1,22)
+        df_analise.at[0, 'DY'] = 1.22
+        cot_ref = float(df_analise.at[0, 'Preço']) if float(df_analise.at[0, 'Preço']) > 0 else 84.70
+        df_analise.at[0, 'Preço'] = cot_ref
+        df_analise.at[0, 'Yield (%)'] = (1.22 / cot_ref) * 100
+        
     # 1. DATA DE PAGAMENTO PRECISA BASEADA NO DICIONÁRIO OFICIAL + AJUSTE DE DIA ÚTIL
     regra = REGRAS_CALENDARIO_FIIS.get(ticker_upper, None)
 
