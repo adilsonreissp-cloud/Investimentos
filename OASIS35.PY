@@ -423,10 +423,13 @@ def analisar_fii_historico(ticker, df_historico=None):
         print(f"\n⚠ Não foi possível obter o histórico para {ticker_upper}.")
         return
 
-    # Força a atualização do provento recente (R$ 1,22) para o JMBI11 caso a API traga valor antigo ou defasado
+    # FORÇAR ATUALIZAÇÃO DO PROVENTO DO JMBI11 PARA R$ 1,22 E RECALCULAR O YIELD
     if ticker_upper == "JMBI11" and not df_analise.empty:
         if 'DY' in df_analise.columns:
             df_analise.iloc[0, df_analise.columns.get_loc('DY')] = 1.22
+            cot_ref = float(df_analise.iloc[0].get('Preço', 0.0))
+            if cot_ref > 0 and 'Yield (%)' in df_analise.columns:
+                df_analise.iloc[0, df_analise.columns.get_loc('Yield (%)')] = (1.22 / cot_ref) * 100
 
     # Normalização de datas e ordenação
     if 'Data_DT' not in df_analise.columns and 'Data COM' in df_analise.columns:
@@ -815,7 +818,7 @@ if __name__ == "__main__":
                 # CORREÇÃO 1: Ajustado preço fallback do BDIV11 para o preço real recalibrado (R$ 36.60)
                 dados_fallback = {
                     "BDIV11": {"p": 36.60, "prov": 0.280, "pm": 36.60, "div": 30.0, "dia": 23, "meses": [1, 4, 7, 10]},
-                    "JMBI11": {"p": 84.70, "prov": 0.900, "pm": 83.66, "div": 20.0, "dia": 30, "meses": None},
+                    "JMBI11": {"p": 84.70, "prov": 1.220, "pm": 83.66, "div": 20.0, "dia": 30, "meses": None},
                     "VGIA11": {"p": 8.45, "prov": 0.110, "pm": 9.20, "div": 120.0, "dia": 10, "meses": None},
                     "VGIR11": {"p": 9.39, "prov": 0.110, "pm": 9.80, "div": 34.0, "dia": 10, "meses": None},
                     "SNAG11": {"p": 9.80, "prov": 0.105, "pm": 10.05, "div": 47.0, "dia": 15, "meses": None},
